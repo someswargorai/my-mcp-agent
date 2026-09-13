@@ -1,7 +1,6 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { tool } from "@langchain/core/tools";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { MemorySaver } from "@langchain/langgraph";
 import { z } from "zod";
 import dotenv from "dotenv";
 import fs from "fs/promises";
@@ -9,10 +8,17 @@ import puppeteer from "puppeteer";
 import { exec } from "child_process";
 import util from "util";
 import readline from "readline/promises";
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { Pool } from "pg";
 
-const checkpointer = new MemorySaver();
-const execPromise = util.promisify(exec);
 dotenv.config();
+const pool = new Pool({
+  connectionString: `postgresql://${process.env.user}:${process.env.password}@localhost:5432/my_agent_db`,
+});
+const checkpointer = new PostgresSaver(pool);
+await checkpointer.setup(); 
+
+const execPromise = util.promisify(exec);
 
 // 1. Initialize the LangChain Model
 const llm = new ChatGoogleGenerativeAI({
@@ -271,8 +277,7 @@ const checkInstagramTool = tool(
 const systemInstruction = `You are an expert AI Software Engineer. Obey these rules strictly:
 1. Do not explore extra files unnecessarily.
 2. If asked to push to GitHub, NEVER use the 'gh' CLI tool. Use standard git commands.
-3. NEVER use Python. Use Node.js for terminal scripts.
-4. Never ask the user for permission to run a command, just execute it autonomously.`;
+3. NEVER use Python. Use Node.js for terminal scripts.`;
 
 // 4. Build the Agent Engine
 // THIS COMPLETELY REPLACES YOUR INFINITE WHILE LOOP AND IF/ELSE BLOCKS!
@@ -313,7 +318,7 @@ async function main() {
   // 1. Start the agent stream. It will pause as soon as it decides to use a tool.
   await processStream({
     messages: [
-      ["user", "push it to git already the remote origin is attached with it. just add, commit and push"]
+      ["user", "write an small 50 words essay related to 'agentic ai' in index2.txt file"]
     ]
   });
 
