@@ -279,69 +279,84 @@ const systemInstruction = `You are an expert AI Software Engineer. Obey these ru
 2. If asked to push to GitHub, NEVER use the 'gh' CLI tool. Use standard git commands.
 3. NEVER use Python. Use Node.js for terminal scripts.`;
 
-// 4. Build the Agent Engine
-// THIS COMPLETELY REPLACES YOUR INFINITE WHILE LOOP AND IF/ELSE BLOCKS!
-const agent = createReactAgent({
+import { StateGraph, MessagesAnnotation, END, START } from "@langchain/langgraph";
+import { SystemMessage, HumanMessage } from "@langchain/core/messages";
+
+// 4. The Engineer Agent (Using your exact existing agent!)
+// Notice we removed the checkpointer from here, it goes on the Master Graph!
+const engineerAgent = createReactAgent({
   llm,
   tools: [
-    readFileTool,
-    writeFileTool,
-    listFilesTool,
-    searchInFileTool,
-    replaceLinesInFileTool,
-    createGitHubRepoTool,
-    runTerminalCommandTool,
-    checkInstagramTool,
+    readFileTool, writeFileTool, listFilesTool, searchInFileTool,
+    replaceLinesInFileTool, createGitHubRepoTool, runTerminalCommandTool, checkInstagramTool,
   ],
   messageModifier: systemInstruction,
-  checkpointSaver: checkpointer,
-  interruptBefore: ['tools']
 });
 
-// 5. Run the System
+// 5. The Reviewer Node
+async function reviewerNode(state) {
+  const lastMsg = state.messages[state.messages.length - 1].content;
+  const response = await llm.invoke([
+    new SystemMessage("Review the Engineer's output. If the task is fully complete, reply EXACTLY 'APPROVED'. If not, explain what is missing."),
+    new HumanMessage(`Review this:\n${lastMsg}`)
+  ]);
+  
+  // TRICK: We return the Reviewer's response as a HumanMessage so the Engineer doesn't get a 400 API Error!
+  return { messages: [new HumanMessage(response.content)] };
+}
+    
+// 6. The Router
+function reviewRouter(state) {
+  const lastMsg = state.messages[state.messages.length - 1].content;
+  return lastMsg.includes("APPROVED") ? END : "engineer";
+}
+
+// 7. Build the Master Multi-Agent Graph
+const agent = new StateGraph(MessagesAnnotation)
+  .addNode("engineer", engineerAgent)
+  .addNode("reviewer", reviewerNode)
+  .addEdge(START, "engineer")
+  .addEdge("engineer", "reviewer")
+  .addConditionalEdges("reviewer", reviewRouter)
+  .compile({
+    checkpointer: checkpointer,
+    interruptBefore: ["reviewer"] // HITL: Pause before Reviewer speaks!
+  });
+
+// 8. Run the System
 async function main() {
-  console.log("🚀 STARTING THE LANGGRAPH AGENT (STREAMING + HITL)!!!");
+  console.log("🚀 STARTING THE MULTI-AGENT SWARM!!!");
   
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const config = { configurable: { thread_id: "demo-thread-2" } };
+  const config = { configurable: { thread_id: "demo-thread-3" } };
 
-  // Helper function to handle streaming output
   async function processStream(input) {
     const stream = await agent.stream(input, config);
     for await (const chunk of stream) {
-      // chunk is an object with a key representing the node that just finished (e.g., 'agent' or 'tools')
       const nodeName = Object.keys(chunk)[0];
-      console.log(`\n[Stream Event]: The '${nodeName}' node just finished!`);
+      if (nodeName !== "__interrupt__") {
+        console.log(`\n[Stream Event]: The '${nodeName}' node just finished!`);
+      }
     }
   }
 
-  // 1. Start the agent stream. It will pause as soon as it decides to use a tool.
   await processStream({
-    messages: [
-      ["user", "push to git the current changes"]
-    ]
+    messages: [ ["user", "push to git the current changes"] ]
   });
 
-  // 2. Loop to handle multiple tool pauses!
   let state = await agent.getState(config);
   
-  // As long as the agent keeps pausing to ask for tools, we keep asking you!
-  while (state.next && state.next.includes("tools")) {
-    const lastMessage = state.values.messages[state.values.messages.length - 1];
-    
+  // Keep asking for permission whenever the graph pauses!
+  while (state.next && state.next.length > 0) {
     console.log("\n🛑 ------------------------------------------- 🛑");
-    console.log("🛑 AGENT PAUSED! It wants to run these tools:");
-    console.log(JSON.stringify(lastMessage.tool_calls, null, 2));
+    console.log(`🛑 AGENT PAUSED! Next up: ${state.next[0]}`);
     console.log("🛑 ------------------------------------------- 🛑\n");
 
-    const answer = await rl.question("🟢 Do you approve this action? (y/n): ");
+    const answer = await rl.question("🟢 Do you approve continuing? (y/n): ");
     
     if (answer.toLowerCase().startsWith('y')) {
-      console.log("\n✅ Action Approved! Resuming Agent Stream...\n");
-      // Passing 'null' tells the agent to resume streaming exactly where it left off
+      console.log("\n✅ Action Approved! Resuming...\n");
       await processStream(null); 
-      
-      // Update the state so the while loop knows if it paused again!
       state = await agent.getState(config);
     } else {
       console.log("\n❌ Action Rejected! Exiting...\n");
@@ -350,7 +365,6 @@ async function main() {
     }
   }
 
-  // Fetch the final state to print the final AI text answer
   state = await agent.getState(config);
   const finalMessage = state.values.messages[state.values.messages.length - 1];
   console.log("\n🤖 Agent's Final Answer:\n", finalMessage.content);
