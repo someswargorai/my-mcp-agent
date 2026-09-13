@@ -318,7 +318,7 @@ async function main() {
   // 1. Start the agent stream. It will pause as soon as it decides to use a tool.
   await processStream({
     messages: [
-      ["user", "write an small 50 words essay related to 'agentic ai' in index2.txt file"]
+      ["user", "push to git the current changes"]
     ]
   });
 
