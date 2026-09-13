@@ -1,0 +1,1 @@
+create index email_index on employees (email)

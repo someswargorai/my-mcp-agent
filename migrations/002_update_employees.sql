@@ -1,0 +1,1 @@
+alter table employees add column email varchar(255)
