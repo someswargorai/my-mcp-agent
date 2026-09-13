@@ -188,11 +188,8 @@ async function replaceLinesInFile(
     if (startIndex < 0 || endIndex >= lines.length || startIndex > endIndex) {
       return `Error: Invalid line numbers. The file only has ${lines.length} lines!`;
     }
-
-    // This cuts out the old lines and inserts the replacementText in that exact spot
     lines.splice(startIndex, endIndex - startIndex + 1, replacementText);
 
-    // Save the file
     await fs.writeFile(filePath, lines.join("\n"), "utf-8");
     return `Success! Replaced lines ${startLine} to ${endLine} in ${filePath}.`;
   } catch (error) {

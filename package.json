@@ -5,6 +5,7 @@
   "scripts": {
     "migrate": "node-pg-migrate up",
     "dev": "node --watch index.js",
+    "langraph":"node --watch index1.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "type": "module",
